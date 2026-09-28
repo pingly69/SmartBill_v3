@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SmartBill v3.0 - ระบบบันทึกบิลขอเบิกเงินสด</title>
+  
+  <!-- LIFF SDK & Fonts & FontAwesome -->
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Fullscreen Loading Overlay -->
+  <div id="loaderOverlay">
+    <div class="loader-card">
+      <div class="spinner"></div>
+      <div class="loader-title" id="loaderTitle">กำลังประมวลผล...</div>
+      <div class="loader-subtitle" id="loaderSubtitle">กรุณารอสักครู่</div>
+    </div>
+  </div>
+
+  <div class="app-wrapper">
+    
+    <!-- Header Section -->
+    <header class="header-bar">
+      <div class="header-brand">
+        <div class="brand-icon">
+          <i class="fa-solid fa-receipt"></i>
+        </div>
+        <span class="brand-title">SmartBill</span>
+        <span class="brand-badge">v3.0 Edge</span>
+      </div>
+      <p class="header-subtitle">ระบบบันทึกและสแกนบิลขอเบิกเงินสดย่อยด้วย AI</p>
+    </header>
+
+    <!-- Dev Mock / Environment Banner (Visible in Dev or Browser Mode) -->
+    <div id="devMockBar" class="dev-mock-bar" style="display: none;">
+      <div>
+        <i class="fa-solid fa-laptop-code" style="color: #00B900;"></i>
+        <span style="font-weight: 600;">Dev Mode:</span>
+        <span id="currentUidDisplay">U1000...</span>
+      </div>
+      <div>
+        <label for="mockUserSelect" style="display:inline; font-size:11px; margin-right:4px;">สลับบัญชี:</label>
+        <select id="mockUserSelect" onchange="switchMockUser(this.value)">
+          <option value="">-- โหลดรายชื่อผู้ใช้ --</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Main Submission Card -->
+    <main class="main-card">
+      <form id="billForm" onsubmit="event.preventDefault(); submitForm();">
+        
+        <!-- Hidden User Info -->
+        <input type="hidden" id="lineUserId" name="lineUserId">
+        <input type="hidden" id="lineEmail" name="lineEmail">
+        <input type="hidden" id="reqType" name="reqType" value="2">
+
+        <!-- 1. ผู้เบิก -->
+        <div class="form-group">
+          <label class="label-required" for="requesterName">ชื่อผู้เบิก</label>
+          <input type="text" id="requesterName" required placeholder="ระบุชื่อ-นามสกุลผู้ขอเบิก">
+        </div>
+
+        <!-- 2. ประเภทการเบิก -->
+        <div class="form-group">
+          <label for="reqTypeDisplay">ประเภทการเบิก</label>
+          <input type="text" id="reqTypeDisplay" value="ประเภท 2 - ใช้วงเงินสดย่อย" readonly>
+        </div>
+
+        <!-- 3. ผู้อนุมัติ / ผู้ถือเงินสดย่อย -->
+        <div class="form-group">
+          <label class="label-required" for="approve_request">ผู้อนุมัติ</label>
+          <div class="select-wrapper">
+            <select id="approve_request" required>
+              <option value="">-- กำลังโหลดรายชื่อผู้อนุมัติ... --</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 4. Upload Receipt Image with Auto-Resize -->
+        <div class="upload-card" id="uploadArea">
+          <input type="file" id="billImage" accept="image/*" onchange="handleImageSelected(event)">
+          <div class="upload-icon-circle">
+            <i class="fa-solid fa-camera"></i>
+          </div>
+          <div class="upload-text" id="uploadText">ถ่ายรูปหรือเลือกไฟล์บิล</div>
+          <div class="upload-hint">บีบอัดอัตโนมัติ (1200px) รวดเร็ว ชัดเจนสำหรับ AI</div>
+
+          <div class="preview-container" id="previewContainer">
+            <img id="previewImg" class="preview-img" alt="บิลที่เลือก">
+            <button type="button" class="preview-remove-btn" onclick="clearSelectedImage(event)" title="ลบรูปภาพ">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 5. Gemini AI Auto-OCR Toggle -->
+        <div class="ai-toggle-card">
+          <div class="ai-toggle-info">
+            <div class="ai-toggle-icon">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </div>
+            <div>
+              <div class="ai-toggle-title">ใช้ AI อ่านบิลอัตโนมัติ</div>
+              <div class="ai-toggle-desc" id="aiToggleDesc">Gemini ช่วยสกัดข้อมูลบิลทันที</div>
+            </div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="aiToggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- 6. เลขประจำตัวผู้เสียภาษี 13 หลัก -->
+        <div class="form-group">
+          <label class="label-required" for="taxId">เลขประจำตัวผู้เสียภาษี (13 หลัก)</label>
+          <input type="text" id="taxId" maxlength="13" inputmode="numeric" placeholder="เช่น 0105558000000" required>
+        </div>
+
+        <!-- 7. ชื่อผู้ขาย / ร้านค้า -->
+        <div class="form-group">
+          <label class="label-required" for="sellerName">ชื่อผู้ขาย/ร้านค้า</label>
+          <input type="text" id="sellerName" placeholder="เช่น บริษัท โฮมโปรดักส์ เซ็นเตอร์ จำกัด" required>
+        </div>
+
+        <!-- 8. รหัสสาขา -->
+        <div class="form-group">
+          <label class="label-required" for="branchCode">รหัสสาขา (5 หลัก)</label>
+          <input type="text" id="branchCode" value="00000" maxlength="5" placeholder="00000" required>
+        </div>
+
+        <!-- 9. เลขที่ใบกำกับภาษี / บิล -->
+        <div class="form-group">
+          <label class="label-required" for="billNumber">เลขที่ใบกำกับภาษี/บิล</label>
+          <input type="text" id="billNumber" placeholder="เช่น INV-6901234" required>
+        </div>
+
+        <!-- 10. วันที่บนบิล (ห้ามเกินวันนี้) -->
+        <div class="form-group">
+          <label class="label-required" for="billDate">วันที่บนบิล</label>
+          <input type="date" id="billDate" required>
+        </div>
+
+        <!-- 11. การคำนวณยอดเงิน (VAT & Pre-VAT) -->
+        <div class="calc-card">
+          <div class="calc-grid">
+            <div>
+              <label for="preVat" style="font-size:12.5px;">ยอดก่อน VAT</label>
+              <input type="number" id="preVat" step="0.01" min="0" value="0" required oninput="calculateTotal()">
+            </div>
+            <div>
+              <label for="vatAmount" style="font-size:12.5px;">ยอด VAT</label>
+              <input type="number" id="vatAmount" step="0.01" min="0" value="0" required oninput="calculateTotal()">
+            </div>
+          </div>
+          <div class="total-net-box">
+            <span class="total-net-label">
+              <i class="fa-solid fa-coins" style="margin-right:4px;"></i> ยอดรวมสุทธิ (บาท)
+            </span>
+            <input type="number" id="totalAmount" step="0.01" value="0.00" readonly class="total-net-input">
+          </div>
+        </div>
+
+        <!-- 12. โครงการ (master_site) พร้อมปุ่ม Refresh -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="label-required" for="projectCode" style="margin-bottom: 0;">โครงการ</label>
+            <button type="button" id="btnRefreshSite" onclick="refreshSiteList()" 
+                    style="background: none; border: none; color: var(--primary); font-size: 13px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 6px;" 
+                    title="โหลดรายชื่อโครงการล่าสุดจาก Cloudflare D1">
+              <i class="fa-solid fa-rotate" id="refreshSiteIcon"></i> โหลดข้อมูลใหม่
+            </button>
+          </div>
+          <div class="select-wrapper">
+            <select id="projectCode" required>
+              <option value="">-- เลือกโครงการ --</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 13. หมายเหตุ / รายการสินค้า -->
+        <div class="form-group">
+          <label for="expenseNote">หมายเหตุ / รายการสินค้า</label>
+          <textarea id="expenseNote" rows="3" placeholder="ระบุรายละเอียดค่าใช้จ่าย หรือสินค้า/บริการ..."></textarea>
+        </div>
+
+        <!-- Submit Button -->
+        <button type="submit" class="btn-primary" id="submitBtn">
+          <i class="fa-solid fa-paper-plane"></i>
+          <span id="submitBtnText">ยืนยันและบันทึกบิล</span>
+        </button>
+
+        <!-- Navigation Link to checkstatus.html -->
+        <div class="nav-link-box">
+          <a href="checkstatus.html" id="checkStatusLink" class="nav-link">
+            <i class="fa-solid fa-list-check"></i>
+            <span>ตรวจสอบสถานะบิลของฉัน &rarr;</span>
+          </a>
+        </div>
+
+      </form>
+    </main>
+  </div>
+
+  <!-- Client Application Logic -->
+  <script>
+    // State variables
+    let base64ImageString = "";
+    let imageMimeType = "image/jpeg";
+    let globalApprovers = [];
+    let currentLineUid = "";
+    let runtimeConfig = {
+      liffId: "2009016720-6dg4Pumx",
+      allowDevMock: true
+    };
+
+    // ==================== Local Cache for Sites (24h TTL) ====================
+    const CacheClient = {
+      getSites: function(ttlHours = 24) {
+        try {
+          const raw = localStorage.getItem('mcache_site_v1');
+          if (raw) {
+            const cached = JSON.parse(raw);
+            if (cached && cached.expiresAt && Date.now() < cached.expiresAt) {
+              return cached.data;
+            }
+          }
+        } catch (e) {
+          console.warn('[CacheClient] Read error:', e);
+        }
+        return null;
+      },
+      setSites: function(data, ttlHours = 24) {
+        try {
+          localStorage.setItem('mcache_site_v1', JSON.stringify({
+            data,
+            savedAt: Date.now(),
+            expiresAt: Date.now() + (ttlHours * 3600 * 1000)
+          }));
+        } catch (e) {
+          console.warn('[CacheClient] Write error:', e);
+        }
+      },
+      clearSites: function() {
+        try {
+          localStorage.removeItem('mcache_site_v1');
+        } catch (e) {}
+      }
+    };
+
+    // ==================== Initialization ====================
+    window.addEventListener('DOMContentLoaded', async () => {
+      // 1. Constrain billDate to today or earlier
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+      const billDateInput = document.getElementById('billDate');
+      billDateInput.max = todayStr;
+      billDateInput.value = todayStr;
+
+      // 2. Load configuration from Worker API
+      try {
+        const cfgRes = await fetch('/api/config');
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          if (cfg.success && cfg.data) {
+            runtimeConfig = cfg.data;
+            if (cfg.data.geminiModel) {
+              const descEl = document.getElementById('aiToggleDesc');
+              if (descEl) descEl.innerText = `${cfg.data.geminiModel} ช่วยสกัดข้อมูลบิลทันที`;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Config fetch warning:', err);
+      }
+
+      // 3. Load Project Site List from local cache or API
+      loadSiteList(false);
+
+      // 4. Initialize LIFF or Browser Fallback
+      initializeAuth();
+    });
+
+    // ==================== Authentication & Profile ====================
+    async function initializeAuth() {
+      showLoader('กำลังเชื่อมต่อระบบ...', 'ตรวจสอบตัวตนผู้ใช้งาน');
+      let lineUid = '';
+      let displayName = '';
+      let email = '';
+
+      // Check if LIFF SDK is loaded and we have a LIFF ID
+      if (typeof liff !== 'undefined' && runtimeConfig.liffId) {
+        try {
+          await liff.init({ liffId: runtimeConfig.liffId });
+          if (liff.isLoggedIn()) {
+            const profile = await liff.getProfile();
+            lineUid = profile.userId;
+            displayName = profile.displayName || '';
+            email = liff.getDecodedIDToken()?.email || '';
+          }
+        } catch (liffErr) {
+          console.warn('LIFF init error (falling back to browser mode):', liffErr);
+        }
+      }
+
+      // If running on desktop / localhost without LINE login
+      if (!lineUid) {
+        const savedUid = localStorage.getItem('smartbill_mock_uid');
+        lineUid = savedUid || 'U1000000000000000000000000000001';
+        displayName = 'ผู้ใช้งานทั่วไป (Web)';
+      }
+
+      currentLineUid = lineUid;
+      document.getElementById('lineUserId').value = lineUid;
+      document.getElementById('lineEmail').value = email;
+      document.getElementById('requesterName').value = displayName;
+
+      const statusLink = document.getElementById('checkStatusLink');
+      if (statusLink) {
+        statusLink.href = 'checkstatus.html?lineUid=' + encodeURIComponent(lineUid);
+      }
+
+      // Setup Dev Mock Bar if enabled
+      if (runtimeConfig.allowDevMock || !window.navigator.userAgent.includes('Line')) {
+        setupDevMockBar(lineUid);
+      }
+
+      // Fetch User Profile & Approvers from Central IAM
+      await fetchInitialData(lineUid);
+      hideLoader();
+    }
+
+    async function fetchInitialData(lineUid) {
+      try {
+        const res = await fetch(`/api/initial-data?lineUid=${encodeURIComponent(lineUid)}`);
+        const json = await res.json();
+
+        if (json.success && json.data) {
+          // 1. Populate Approvers Dropdown
+          globalApprovers = json.data.approvers || [];
+          populateApproversDropdown(globalApprovers);
+
+          // 2. Populate User Profile
+          const profile = json.data.profile;
+          if (profile && profile.found && profile.request_name) {
+            document.getElementById('requesterName').value = profile.request_name;
+          }
+        }
+      } catch (err) {
+        console.error('fetchInitialData failed:', err);
+      }
+    }
+
+    function populateApproversDropdown(approvers) {
+      const select = document.getElementById('approve_request');
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">-- เลือกผู้อนุมัติ --</option>';
+
+      if (Array.isArray(approvers)) {
+        approvers.forEach(a => {
+          const opt = document.createElement('option');
+          // In accordance with user preference: display name only
+          opt.value = a.approve_request;
+          opt.innerText = a.approve_request;
+          opt.dataset.lineUid = a.line_uid || '';
+          if (a.approve_request === currentVal) opt.selected = true;
+          select.appendChild(opt);
+        });
+      }
+    }
+
+    // ==================== Dev Mock Bar Helpers ====================
+    async function setupDevMockBar(activeUid) {
+      const devBar = document.getElementById('devMockBar');
+      const uidDisplay = document.getElementById('currentUidDisplay');
+      const userSelect = document.getElementById('mockUserSelect');
+      
+      devBar.style.display = 'flex';
+      uidDisplay.innerText = activeUid.slice(0, 10) + '...';
+
+      try {
+        const res = await fetch('/api/initial-data?lineUid=' + activeUid);
+        const json = await res.json();
+        if (json.success && json.data && Array.isArray(json.data.approvers)) {
+          userSelect.innerHTML = '<option value="">-- เลือกผู้ใช้ทดสอบ --</option>';
+          json.data.approvers.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.line_uid;
+            opt.innerText = `${u.approve_request} (${u.line_uid.slice(0, 6)}...)`;
+            if (u.line_uid === activeUid) opt.selected = true;
+            userSelect.appendChild(opt);
+          });
+        }
+      } catch (e) {}
+    }
+
+    function switchMockUser(newUid) {
+      if (!newUid) return;
+      localStorage.setItem('smartbill_mock_uid', newUid);
+      window.location.reload();
+    }
+
+    // ==================== Master Sites Loading ====================
+    async function loadSiteList(forceFresh = false) {
+      const select = document.getElementById('projectCode');
+      const refreshIcon = document.getElementById('refreshSiteIcon');
+      const refreshBtn = document.getElementById('btnRefreshSite');
+
+      if (forceFresh) {
+        if (refreshIcon) refreshIcon.classList.add('fa-spin');
+        if (refreshBtn) refreshBtn.disabled = true;
+        CacheClient.clearSites();
+      }
+
+      let sites = CacheClient.getSites(24);
+
+      if (!sites || forceFresh) {
+        try {
+          const res = await fetch('/api/sites');
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data)) {
+            sites = json.data;
+            CacheClient.setSites(sites, 24);
+          }
+        } catch (err) {
+          console.error('Failed fetching sites:', err);
+        }
+      }
+
+      const currentVal = select.value;
+      select.innerHTML = '<option value="">-- เลือกโครงการ --</option>';
+      if (Array.isArray(sites)) {
+        sites.forEach(siteName => {
+          if (siteName) {
+            const opt = document.createElement('option');
+            opt.value = siteName;
+            opt.innerText = siteName;
+            if (siteName === currentVal) opt.selected = true;
+            select.appendChild(opt);
+          }
+        });
+      }
+
+      if (forceFresh) {
+        if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+        if (refreshBtn) refreshBtn.disabled = false;
+      }
+    }
+
+    function refreshSiteList() {
+      loadSiteList(true);
+    }
+
+    // ==================== Canvas Image Resizing & Preview ====================
+    function handleImageSelected(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const uploadText = document.getElementById('uploadText');
+      uploadText.innerText = file.name;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          // Resize rule: Max dimension 1200px (sharp for AI OCR & fast upload)
+          const MAX_SIZE = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height = Math.round(height * (MAX_SIZE / width));
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width = Math.round(width * (MAX_SIZE / height));
+              height = MAX_SIZE;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Compress to JPEG at 80% quality
+          const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.80);
+
+          // Update preview
+          const previewImg = document.getElementById('previewImg');
+          const previewContainer = document.getElementById('previewContainer');
+          previewImg.src = resizedDataUrl;
+          previewContainer.style.display = 'block';
+
+          // Extract base64 payload
+          base64ImageString = resizedDataUrl.split(',')[1];
+          imageMimeType = 'image/jpeg';
+
+          // Trigger AI OCR if toggle is enabled
+          if (document.getElementById('aiToggle').checked) {
+            triggerAI(base64ImageString, imageMimeType);
+          }
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearSelectedImage(e) {
+      if (e) e.stopPropagation();
+      document.getElementById('billImage').value = '';
+      document.getElementById('previewImg').src = '';
+      document.getElementById('previewContainer').style.display = 'none';
+      document.getElementById('uploadText').innerText = 'ถ่ายรูปหรือเลือกไฟล์บิล';
+      base64ImageString = '';
+    }
+
+    // ==================== Gemini AI OCR Analysis ====================
+    async function triggerAI(base64, mimeType) {
+      showLoader('AI กำลังสแกนบิล...', 'Gemini Flash กำลังวิเคราะห์ข้อมูลและภาษี');
+
+      try {
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64, type: mimeType })
+        });
+
+        const json = await response.json();
+        if (json.success && json.data) {
+          const d = json.data;
+          if (d.taxId) document.getElementById('taxId').value = d.taxId;
+          if (d.sellerName) document.getElementById('sellerName').value = d.sellerName;
+          if (d.branchCode) document.getElementById('branchCode').value = d.branchCode;
+          if (d.billNumber) document.getElementById('billNumber').value = d.billNumber;
+          if (d.billDate) document.getElementById('billDate').value = d.billDate;
+          if (d.preVat !== undefined) document.getElementById('preVat').value = d.preVat;
+          if (d.vatAmount !== undefined) document.getElementById('vatAmount').value = d.vatAmount;
+          if (d.expenseNote) document.getElementById('expenseNote').value = d.expenseNote;
+
+          calculateTotal();
+        } else {
+          alert('AI วิเคราะห์ไม่สำเร็จ: ' + (json.message || 'ไม่สามารถอ่านข้อความจากภาพได้'));
+        }
+      } catch (err) {
+        alert('เกิดข้อผิดพลาดในการเรียก AI: ' + err.message);
+      } finally {
+        hideLoader();
+      }
+    }
+
+    // ==================== Amount Calculation ====================
+    function calculateTotal() {
+      const preVat = parseFloat(document.getElementById('preVat').value) || 0;
+      const vatAmount = parseFloat(document.getElementById('vatAmount').value) || 0;
+      const total = Math.round((preVat + vatAmount) * 100) / 100;
+      document.getElementById('totalAmount').value = total.toFixed(2);
+    }
+
+    // ==================== Form Submission ====================
+    async function submitForm() {
+      const form = document.getElementById('billForm');
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+      }
+
+      // Date validation: billDate <= today
+      const billDateVal = document.getElementById('billDate').value;
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+      if (billDateVal > todayStr) {
+        alert('วันที่บนบิลต้องไม่เกินวันที่ปัจจุบันครับ');
+        document.getElementById('billDate').focus();
+        return;
+      }
+
+      // Resolve approver's line_uid from dataset
+      const approveSelect = document.getElementById('approve_request');
+      const selectedOption = approveSelect.options[approveSelect.selectedIndex];
+      const approveLineUid = selectedOption ? (selectedOption.dataset.lineUid || '') : '';
+
+      const submitBtn = document.getElementById('submitBtn');
+      const submitBtnText = document.getElementById('submitBtnText');
+      submitBtn.disabled = true;
+      submitBtnText.innerText = 'กำลังบันทึกข้อมูล...';
+
+      showLoader('กำลังบันทึกข้อมูล...', 'บันทึกบิลเข้าสู่ Cloudflare D1');
+
+      const payload = {
+        taxId: document.getElementById('taxId').value.trim(),
+        sellerName: document.getElementById('sellerName').value.trim(),
+        branchCode: document.getElementById('branchCode').value.trim() || '00000',
+        billNumber: document.getElementById('billNumber').value.trim(),
+        billDate: billDateVal,
+        preVat: parseFloat(document.getElementById('preVat').value) || 0,
+        vatAmount: parseFloat(document.getElementById('vatAmount').value) || 0,
+        projectCode: document.getElementById('projectCode').value,
+        expenseNote: document.getElementById('expenseNote').value.trim(),
+        reqType: '2',
+        approve_request: approveSelect.value,
+        approve_line_uid: approveLineUid,
+        requesterName: document.getElementById('requesterName').value.trim(),
+        lineUserId: document.getElementById('lineUserId').value.trim(),
+        lineEmail: document.getElementById('lineEmail').value.trim(),
+        base64Image: base64ImageString,
+        mimeType: imageMimeType
+      };
+
+      try {
+        const response = await fetch('/api/bills', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const json = await response.json();
+        hideLoader();
+
+        if (json.success) {
+          submitBtnText.innerText = 'บันทึกสำเร็จ ✅';
+
+          // If in LINE client, try sending message
+          if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
+            try {
+              await liff.sendMessages([{
+                type: 'text',
+                text: `✅ บันทึกบิลสำเร็จ\nผู้ขาย: ${payload.sellerName}\nยอดสุทธิ: ${document.getElementById('totalAmount').value} บาท\nสถานะ: ${json.status || 'รออนุมัติ'}`
+              }]);
+              liff.closeWindow();
+              return;
+            } catch (lineErr) {
+              console.warn('Could not send LINE message:', lineErr);
+            }
+          }
+
+          alert(`บันทึกข้อมูลสำเร็จ!\nรหัสเอกสาร: ${json.record_id}\nสถานะ: ${json.status}`);
+          window.location.href = 'checkstatus.html';
+
+        } else {
+          alert('เกิดข้อผิดพลาด: ' + (json.message || 'ไม่สามารถบันทึกได้'));
+          submitBtn.disabled = false;
+          submitBtnText.innerText = 'ยืนยันและบันทึกบิล';
+        }
+      } catch (err) {
+        hideLoader();
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message);
+        submitBtn.disabled = false;
+        submitBtnText.innerText = 'ยืนยันและบันทึกบิล';
+      }
+    }
+
+    // ==================== Loader Helpers ====================
+    function showLoader(title, subtitle) {
+      document.getElementById('loaderTitle').innerText = title || 'กำลังโหลด...';
+      document.getElementById('loaderSubtitle').innerText = subtitle || 'กรุณารอสักครู่';
+      document.getElementById('loaderOverlay').classList.add('active');
+    }
+
+    function hideLoader() {
+      document.getElementById('loaderOverlay').classList.remove('active');
+    }
+  </script>
+</body>
+</html>

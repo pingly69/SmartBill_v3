@@ -1,0 +1,31 @@
+name = "smartbill-app"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+account_id = "f9bc011eeec351846c11f6aefacded76"
+
+# Cloudflare Static Assets (Frontend UI)
+assets = { directory = "./public", binding = "ASSETS" }
+
+# Cloudflare D1 Database Binding (IMG_DB)
+[[d1_databases]]
+binding = "DB"
+database_name = "IMG_DB"
+database_id = "4db03e65-cc9d-458e-81f7-b8119669dd17"
+
+[[d1_databases]]
+binding = "IMG_DB"
+database_name = "IMG_DB"
+database_id = "4db03e65-cc9d-458e-81f7-b8119669dd17"
+
+# Cloudflare Cron Triggers (Daily Maintenance at 02:00 AM Bangkok Time / 19:00 UTC)
+[triggers]
+crons = ["0 19 * * *"]
+
+[vars]
+ENVIRONMENT = "production"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
+# Note: GEMINI_API_KEY should be set via `wrangler secret put GEMINI_API_KEY` in production, or in `.dev.vars` for local dev
+IAM_API_URL = "https://smartbill-usersadmin-api.pingly69.workers.dev/api"
+LIFF_ID = "2009016720-6dg4Pumx"
+ALLOW_DEV_MOCK = "true"

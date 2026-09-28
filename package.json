@@ -1,0 +1,17 @@
+{
+  "name": "smartbill-v3",
+  "version": "3.0.0",
+  "description": "SmartBill v3.0 - Cloudflare Modernized Bill Processing Web App with Gemini AI",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev --remote --port 8788",
+    "dev:local": "wrangler dev --port 8788",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260925.1",
+    "typescript": "^5.6.2",
+    "wrangler": "^4.141.0"
+  }
+}

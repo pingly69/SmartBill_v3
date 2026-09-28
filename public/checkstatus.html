@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SmartBill v3.0 - ตรวจสอบสถานะบิล</title>
+  
+  <!-- LIFF SDK & FontAwesome & Styles -->
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Image Lightbox Modal -->
+  <div id="imageModal" class="modal-overlay" onclick="closeImageModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeImageModal()">&times;</button>
+      <img id="modalImg" class="modal-img" src="" alt="ภาพใบเสร็จรับเงิน">
+    </div>
+  </div>
+
+  <!-- Fullscreen Loading Overlay -->
+  <div id="loaderOverlay">
+    <div class="loader-card">
+      <div class="spinner"></div>
+      <div class="loader-title" id="loaderTitle">กำลังดึงข้อมูล...</div>
+      <div class="loader-subtitle" id="loaderSubtitle">กรุณารอสักครู่</div>
+    </div>
+  </div>
+
+  <div class="app-wrapper">
+    
+    <!-- Top Navigation Bar -->
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+      <a href="index.html" class="nav-link" style="padding: 6px 14px; font-size: 13.5px;">
+        <i class="fa-solid fa-arrow-left"></i> บันทึกบิลใหม่
+      </a>
+      <button onclick="loadMyBills(true)" style="background: white; border: 1.5px solid var(--border-color); border-radius: 9999px; padding: 6px 14px; font-size: 13px; font-weight: 500; color: var(--text-main); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: var(--shadow-sm);">
+        <i class="fa-solid fa-rotate" id="refreshIcon"></i> รีเฟรช
+      </button>
+    </div>
+
+    <!-- Header Section -->
+    <header class="header-bar" style="margin-bottom: 16px;">
+      <div class="header-brand">
+        <div class="brand-icon" style="background: linear-gradient(135deg, #0284c7, #0369a1);">
+          <i class="fa-solid fa-list-check"></i>
+        </div>
+        <span class="brand-title">ประวัติและสถานะบิล</span>
+      </div>
+      <p class="header-subtitle" id="userHeaderSubtitle">ติดตามความคืบหน้าการเบิกจ่ายเงินสดย่อย</p>
+    </header>
+
+    <!-- KPI Summary Cards -->
+    <section class="kpi-grid">
+      <!-- 1. Total -->
+      <div class="kpi-card" style="border-left: 4px solid #0284c7;">
+        <div class="kpi-header">
+          <span class="kpi-title">บิลทั้งหมด</span>
+          <i class="fa-solid fa-receipt kpi-icon" style="color: #0284c7;"></i>
+        </div>
+        <div class="kpi-value" id="kpiTotalBills">0</div>
+        <div class="kpi-sub" id="kpiTotalNet">฿0.00</div>
+      </div>
+
+      <!-- 2. Pending -->
+      <div class="kpi-card" style="border-left: 4px solid var(--warning-color);">
+        <div class="kpi-header">
+          <span class="kpi-title">รออนุมัติ</span>
+          <i class="fa-solid fa-hourglass-half kpi-icon" style="color: var(--warning-color);"></i>
+        </div>
+        <div class="kpi-value" id="kpiPendingCount">0</div>
+        <div class="kpi-sub" id="kpiPendingNet">฿0.00</div>
+      </div>
+
+      <!-- 3. Paided / Approved -->
+      <div class="kpi-card" style="border-left: 4px solid var(--success-color);">
+        <div class="kpi-header">
+          <span class="kpi-title">จ่ายแล้ว / อนุมัติ</span>
+          <i class="fa-solid fa-circle-check kpi-icon" style="color: var(--success-color);"></i>
+        </div>
+        <div class="kpi-value" id="kpiPaidedCount">0</div>
+        <div class="kpi-sub" id="kpiPaidedNet">฿0.00</div>
+      </div>
+
+      <!-- 4. Rejected -->
+      <div class="kpi-card" style="border-left: 4px solid var(--error-color);">
+        <div class="kpi-header">
+          <span class="kpi-title">ไม่อนุมัติ</span>
+          <i class="fa-solid fa-circle-xmark kpi-icon" style="color: var(--error-color);"></i>
+        </div>
+        <div class="kpi-value" id="kpiRejectedCount">0</div>
+        <div class="kpi-sub">รายการที่ไม่ผ่าน</div>
+      </div>
+    </section>
+
+    <!-- Search & Filter Controls -->
+    <div style="margin-bottom: 12px;">
+      <input type="text" id="searchInput" placeholder="🔍 ค้นหาตามชื่อร้าน, เลขที่บิล, โครงการ..." 
+             oninput="applyFilters()" 
+             style="box-shadow: var(--shadow-sm); padding: 10px 14px; font-size: 14px;">
+    </div>
+
+    <!-- Filter Tabs -->
+    <nav class="filter-tabs">
+      <button class="tab-btn active" data-filter="all" onclick="selectTab(this, 'all')">ทั้งหมด</button>
+      <button class="tab-btn" data-filter="pending" onclick="selectTab(this, 'pending')">รออนุมัติ</button>
+      <button class="tab-btn" data-filter="paided" onclick="selectTab(this, 'paided')">จ่ายแล้ว / อนุมัติ</button>
+      <button class="tab-btn" data-filter="rejected" onclick="selectTab(this, 'rejected')">ไม่อนุมัติ</button>
+    </nav>
+
+    <!-- Bill Items List Container -->
+    <main id="billsListContainer">
+      <!-- Populated dynamically -->
+    </main>
+
+  </div>
+
+  <!-- Client Application Logic -->
+  <script>
+    let allBills = [];
+    let currentFilter = 'all';
+    let currentLineUid = '';
+    let runtimeConfig = {
+      liffId: "2009016720-6dg4Pumx",
+      allowDevMock: true
+    };
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      // 1. Fetch Config
+      try {
+        const cfgRes = await fetch('/api/config');
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          if (cfg.success && cfg.data) {
+            runtimeConfig = cfg.data;
+          }
+        }
+      } catch (e) {}
+
+      // 2. Identify User: check URL params first, then LIFF, then localStorage
+      const urlParams = new URLSearchParams(window.location.search);
+      let lineUid = urlParams.get('lineUid') || '';
+
+      if (!lineUid && typeof liff !== 'undefined' && runtimeConfig.liffId) {
+        try {
+          await liff.init({ liffId: runtimeConfig.liffId });
+          if (liff.isLoggedIn()) {
+            const profile = await liff.getProfile();
+            lineUid = profile.userId;
+            document.getElementById('userHeaderSubtitle').innerText = 'ผู้ใช้งาน: ' + (profile.displayName || 'LINE User');
+          }
+        } catch (err) {
+          console.warn('LIFF init fallback:', err);
+        }
+      }
+
+      if (!lineUid) {
+        lineUid = localStorage.getItem('smartbill_mock_uid') || 'Uc424afabc63a230c9007cb2f38058c87';
+      }
+
+      currentLineUid = lineUid;
+      await loadMyBills();
+    });
+
+    async function loadMyBills(isRefresh = false) {
+      const refreshIcon = document.getElementById('refreshIcon');
+      if (refreshIcon && isRefresh) refreshIcon.classList.add('fa-spin');
+
+      showLoader('กำลังโหลดประวัติบิล...', 'ดึงข้อมูลจาก Cloudflare D1');
+
+      try {
+        const res = await fetch(`/api/bills/my?lineUid=${encodeURIComponent(currentLineUid)}`);
+        const json = await res.json();
+
+        if (json.success && json.data) {
+          const summary = json.data.summary;
+          allBills = json.data.bills || [];
+
+          // Update KPI Cards
+          document.getElementById('kpiTotalBills').innerText = summary.totalBills || 0;
+          document.getElementById('kpiTotalNet').innerText = formatBaht(summary.totalNet || 0);
+
+          document.getElementById('kpiPendingCount').innerText = summary.pendingCount || 0;
+          document.getElementById('kpiPendingNet').innerText = formatBaht(summary.pendingNet || 0);
+
+          const combinedPaid = (summary.paidedCount || 0) + (summary.approvedCount || 0);
+          const combinedPaidNet = (summary.paidedNet || 0) + (summary.approvedNet || 0);
+          document.getElementById('kpiPaidedCount').innerText = combinedPaid;
+          document.getElementById('kpiPaidedNet').innerText = formatBaht(combinedPaidNet);
+
+          document.getElementById('kpiRejectedCount').innerText = summary.rejectedCount || 0;
+
+          // Render list
+          applyFilters();
+        } else {
+          showEmptyState('ไม่พบประวัติบิลในระบบ');
+        }
+      } catch (err) {
+        console.error('loadMyBills failed:', err);
+        showEmptyState('เกิดข้อผิดพลาดในการโหลดข้อมูล: ' + err.message);
+      } finally {
+        hideLoader();
+        if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+      }
+    }
+
+    function selectTab(button, filter) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      button.classList.add('active');
+      currentFilter = filter;
+      applyFilters();
+    }
+
+    function applyFilters() {
+      const query = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+      
+      const filtered = allBills.filter(bill => {
+        // Tab filter
+        const st = (bill.status || '').toLowerCase();
+        let matchTab = false;
+        if (currentFilter === 'all') {
+          matchTab = true;
+        } else if (currentFilter === 'pending') {
+          matchTab = (st === 'pending');
+        } else if (currentFilter === 'paided') {
+          matchTab = (st === 'paided' || st === 'paid' || st === 'approved');
+        } else if (currentFilter === 'rejected') {
+          matchTab = (st === 'rejected');
+        }
+
+        if (!matchTab) return false;
+
+        // Search text query
+        if (!query) return true;
+        return (
+          (bill.Vend_name && bill.Vend_name.toLowerCase().includes(query)) ||
+          (bill.Tax_docno && bill.Tax_docno.toLowerCase().includes(query)) ||
+          (bill.project && bill.project.toLowerCase().includes(query)) ||
+          (bill.Remark && bill.Remark.toLowerCase().includes(query)) ||
+          (bill.tax_id && bill.tax_id.includes(query))
+        );
+      });
+
+      renderBills(filtered);
+    }
+
+    function renderBills(bills) {
+      const container = document.getElementById('billsListContainer');
+      container.innerHTML = '';
+
+      if (!bills || bills.length === 0) {
+        showEmptyState('ไม่พบบิลที่ตรงกับเงื่อนไขการค้นหา');
+        return;
+      }
+
+      bills.forEach(bill => {
+        const card = document.createElement('div');
+        card.className = 'bill-card';
+
+        // Badge config
+        let badgeClass = 'badge-pending';
+        let badgeIcon = 'fa-hourglass-half';
+        let badgeText = 'รออนุมัติ';
+
+        const st = (bill.status || '').toLowerCase();
+        if (st === 'paided' || st === 'paid') {
+          badgeClass = 'badge-paided';
+          badgeIcon = 'fa-check';
+          badgeText = 'จ่ายแล้ว';
+        } else if (st === 'approved') {
+          badgeClass = 'badge-approved';
+          badgeIcon = 'fa-circle-check';
+          badgeText = 'อนุมัติแล้ว';
+        } else if (st === 'rejected') {
+          badgeClass = 'badge-rejected';
+          badgeIcon = 'fa-circle-xmark';
+          badgeText = 'ไม่อนุมัติ';
+        }
+
+        const hasPic = Boolean(bill.pic_bill && bill.pic_bill.length > 5);
+
+        card.innerHTML = `
+          <div class="bill-card-top">
+            <span class="badge ${badgeClass}">
+              <i class="fa-solid ${badgeIcon}"></i> ${badgeText}
+            </span>
+            <span class="bill-amount">฿${Number(bill.Net || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+          </div>
+
+          <div class="bill-vendor">${escapeHtml(bill.Vend_name || 'ไม่ระบุผู้ขาย')}</div>
+
+          <div class="bill-meta-grid">
+            <div><i class="fa-solid fa-calendar-days" style="color:var(--text-muted); margin-right:4px;"></i> วันที่: ${bill.doc_date || '-'}</div>
+            <div><i class="fa-solid fa-file-invoice" style="color:var(--text-muted); margin-right:4px;"></i> เลขที่: ${escapeHtml(bill.Tax_docno || '-')}</div>
+            <div><i class="fa-solid fa-location-dot" style="color:var(--text-muted); margin-right:4px;"></i> โครงการ: ${escapeHtml(bill.project || '-')}</div>
+            <div><i class="fa-solid fa-user-check" style="color:var(--text-muted); margin-right:4px;"></i> ผู้อนุมัติ: ${escapeHtml(bill.approve_request || '-')}</div>
+          </div>
+
+          ${bill.Remark ? `<div class="bill-remark"><i class="fa-regular fa-comment-dots"></i> ${escapeHtml(bill.Remark)}</div>` : ''}
+
+          ${hasPic ? `
+            <div style="margin-top: 10px; display: flex; align-items: center; justify-content: flex-end;">
+              <button onclick="openImageModal('${encodeURIComponent(bill.pic_bill)}')" 
+                      style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; padding: 4px 10px; font-size: 12px; color: #334155; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                <i class="fa-solid fa-image" style="color: #0284c7;"></i> ดูภาพบิล
+              </button>
+            </div>
+          ` : ''}
+        `;
+
+        container.appendChild(card);
+      });
+    }
+
+    function showEmptyState(msg) {
+      const container = document.getElementById('billsListContainer');
+      container.innerHTML = `
+        <div style="text-align: center; padding: 40px 20px; color: var(--text-muted);">
+          <div style="font-size: 40px; margin-bottom: 12px; color: #cbd5e1;">
+            <i class="fa-regular fa-folder-open"></i>
+          </div>
+          <div style="font-size: 15px; font-weight: 500; color: #64748b;">${escapeHtml(msg)}</div>
+        </div>
+      `;
+    }
+
+    function formatBaht(amount) {
+      return '฿' + Number(amount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 });
+    }
+
+    function escapeHtml(text) {
+      const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+      return String(text).replace(/[&<>"']/g, m => map[m]);
+    }
+
+    // Modal Image Lightbox
+    function openImageModal(encodedUrl) {
+      const url = decodeURIComponent(encodedUrl);
+      const modal = document.getElementById('imageModal');
+      const img = document.getElementById('modalImg');
+      img.src = url;
+      modal.classList.add('active');
+    }
+
+    function closeImageModal() {
+      document.getElementById('imageModal').classList.remove('active');
+      document.getElementById('modalImg').src = '';
+    }
+
+    // Loader helpers
+    function showLoader(title, subtitle) {
+      document.getElementById('loaderTitle').innerText = title || 'กำลังโหลด...';
+      document.getElementById('loaderSubtitle').innerText = subtitle || 'กรุณารอสักครู่';
+      document.getElementById('loaderOverlay').classList.add('active');
+    }
+
+    function hideLoader() {
+      document.getElementById('loaderOverlay').classList.remove('active');
+    }
+  </script>
+</body>
+</html>
